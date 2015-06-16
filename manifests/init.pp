@@ -30,14 +30,7 @@ class windows_firewall (
 
     validate_re($ensure,['^(running|stopped)$'])
 
-    case $::operatingsystemversion {
-        /Windows Server 2003/,/Windows Server 2003 R2/,/Windows XP/: {
-          $firewall_name = 'SharedAccess'
-        }
-        default: {
-          $firewall_name = 'MpsSvc'
-        }
-    }
+    $firewall_name = 'MpsSvc'
 
     case $ensure {
         'running': {

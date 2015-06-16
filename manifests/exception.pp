@@ -89,15 +89,7 @@ define windows_firewall::exception(
 
     # Check if we're allowing a program or port/protocol and validate accordingly
     if $program == undef {
-      #check whether to use 'localport', or just 'port' depending on OS
-      case $::operatingsystemversion {
-        /Windows Server 2003/, /Windows XP/: {
-          $port_param = 'port'
-        }
-        default: {
-          $port_param = 'localport'
-        }
-      }
+      $port_param = 'localport'
       $fw_command = 'portopening'
       validate_re($protocol,['^(TCP|UDP|ICMPv(4|6))$'])
       if $protocol =~ /ICMPv(4|6)/ {
@@ -144,18 +136,7 @@ define windows_firewall::exception(
         $fw_description = ''
     }
 
-    case $::operatingsystemversion {
-      /Windows Server 2003/, /Windows XP/: {
-        $mode = $enabled ? {
-          'yes' => 'ENABLE',
-          'no'  => 'DISABLE',
-        }
-        $netsh_command = "C:\\Windows\\System32\\netsh.exe firewall ${fw_action} ${fw_command} name=\"${display_name}\" mode=${mode} ${allow_context}"
-      }
-      default: {
-        $netsh_command = "C:\\Windows\\System32\\netsh.exe advfirewall firewall ${fw_action} rule name=\"${display_name}\" ${fw_description} dir=${direction} action=${action} enable=${enabled} edge=${allow_edge_traversal} ${allow_context} remoteip=\"${remote_ip}\""
-      }
-    }
+    $netsh_command = "C:\\Windows\\System32\\netsh.exe advfirewall firewall ${fw_action} rule name=\"${display_name}\" ${fw_description} dir=${direction} action=${action} enable=${enabled} edge=${allow_edge_traversal} ${allow_context} remoteip=\"${remote_ip}\""
 
     exec { "set rule ${display_name}":
       command  => $netsh_command,
