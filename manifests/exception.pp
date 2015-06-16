@@ -43,6 +43,11 @@
 # [*allow_edge_traversal*]
 # Specifies that the traffic for this exception traverses an edge device
 #
+# [*update*]
+# Specifies what to do in case of rule with matching name but different content already exists
+#  true  : content of existing rule will be updated (default)
+#  false : new rule will be created with the new values
+#
 # === Examples
 #
 #  Exception for protocol/port:
@@ -84,64 +89,125 @@ define windows_firewall::exception(
   $display_name = '',
   $description = '',
   $allow_edge_traversal = 'no',
+  $update = true
 
 ) {
 
-    # Check if we're allowing a program or port/protocol and validate accordingly
-    if $program == undef {
-      $port_param = 'localport'
-      $fw_command = 'portopening'
-      validate_re($protocol,['^(TCP|UDP|ICMPv(4|6))$'])
-      if $protocol =~ /ICMPv(4|6)/ {
-        $allow_context = "protocol=${protocol}"
-      } else {
-        $allow_context = "protocol=${protocol} ${port_param}=${local_port}"
-        validate_re($local_port,['^(any|([0-9]{1,5})|([0-9]{1,5})[-]([0-9]{1,5}))$'])
-      }
+  # Check if we're allowing a program or port/protocol and validate accordingly
+  if $program == undef {
+    $port_param = 'localport'
+    $fw_command = 'portopening'
+    validate_re($protocol,['^(TCP|UDP|ICMPv(4|6))$'])
+    if $protocol =~ /ICMPv(4|6)/ {
+      $allow_context = "protocol=${protocol}"
     } else {
-      $fw_command = 'allowedprogram'
-      $allow_context = "program=\"${program}\""
-      validate_absolute_path($program)
+      $allow_context = "protocol=${protocol} ${port_param}=${local_port}"
+      validate_re($local_port,['^(any|([0-9]{1,5})|([0-9]{1,5})[-]([0-9]{1,5}))$'])
     }
+  } else {
+    $fw_command = 'allowedprogram'
+    $allow_context = "program=\"${program}\""
+    validate_absolute_path($program)
+  }
 
-    # Validate common parameters
-    validate_re($ensure,['^(present|absent)$'])
-    validate_slength($display_name,255)
-    validate_re($enabled,['^(yes|no)$'])
-    validate_re($allow_edge_traversal,['^(yes|no)$'])
+  # Validate common parameters
+  validate_re($ensure,['^(present|absent)$'])
+  validate_slength($display_name,255)
+  validate_re($enabled,['^(yes|no)$'])
+  validate_re($allow_edge_traversal,['^(yes|no)$'])
+  validate_slength($description,255)
+  validate_re($direction,['^(in|out)$'])
+  validate_re($action,['^(allow|block)$'])
 
-    case $::operatingsystemversion {
-      'Windows Server 2012', 'Windows Server 2008', 'Windows Server 2008 R2', 'Windows Vista','Windows 7','Windows 8': {
-        validate_slength($description,255)
-        validate_re($direction,['^(in|out)$'])
-        validate_re($action,['^(allow|block)$'])
-      }
-      default: { }
-    }
+  # Map values for the PowerShell check
+  case $protocol {
+    'TCP'    : { $ps_protocol = '6' }
+    'UDP'    : { $ps_protocol = '17' }
+    'ICMPv4' : { $ps_protocol = '1' }
+    'ICMPv6' : { $ps_protocol = '58' }
+    default  : {}
+  }
+  case downcase($action) {
+    'allow' : { $ps_action = '1' }
+    'block' : { $ps_action = '2' }
+    default : {}
+  }
+  case downcase($enabled) {
+    'yes'   : { $ps_enabled = 'True' }
+    'no'    : { $ps_enabled = 'False' }
+    default : {}
+  }
+  case downcase($direction) {
+    'in'    : { $ps_direction = '1' }
+    'out'   : { $ps_direction = '2' }
+    default : {}
+  }
+  case downcase($allow_edge_traversal) {
+    'yes'   : { $ps_traversal = 'True'}
+    'no'    : { $ps_traversal = 'False' }
+    default : {}
+  }
+  if $remote_ip == '' {
+    $ps_remote_ip = '*'
+  }
+  else {
+    $ps_remote_ip = $remote_ip
+  }
 
-    # Set command to check for existing rules
-    $check_rule_existance= "C:\\Windows\\System32\\netsh.exe advfirewall firewall show rule name=\"${display_name}\""
+ # Set pathes and commands to check for existing rules
+  $netsh_bin            = 'C:\Windows\System32\netsh.exe'
+  $ps_bin               = 'C:\Windows\system32\WindowsPowershell\v1.0\powershell.exe'
+  $check_rule_existance = "${netsh_bin} advfirewall firewall show rule name=\"${display_name}\""
+  $ps_searches          = [ "(\$_.Name -eq '${display_name}')",
+                            "-and (\$_.Protocol -eq '${ps_protocol}')",
+                            "-and (\$_.LocalPorts -eq '${local_port}')",
+                            "-and (\$_.Enabled -eq \$${ps_enabled})",
+                            "-and (\$_.Action -eq '${ps_action}')",
+                            "-and (\$_.Direction -eq '${ps_direction}')",
+                            "-and (\$_.RemoteAddresses -eq '${ps_remote_ip}')",
+                            "-and (\$_.Description -eq '${description}')",
+                            "-and (\$_.EdgeTraversal -eq \$${ps_traversal})"]
+  $ps_search            = join($ps_searches, ' ')
+  $detailed_search_ps   = "(New-object -comObject HNetCfg.FwPolicy2).Rules | Where-Object { ${ps_search} }"
+  $detailed_search_cmd  = "${ps_bin} -Command \"if (${detailed_search_ps}) {exit 0} exit 1\""
+  $netsh_delete_cmd     = "${netsh_bin} advfirewall firewall delete rule name=\"${display_name}\""
+  $rule_details         = [ "description=\"${description}\"",
+                            "dir=${direction}",
+                            "action=${action}",
+                            "enable=${enabled}",
+                            "edge=${allow_edge_traversal}",
+                            "${allow_context}",
+                            "remoteip=\"${remote_ip}\""]
+  $rule_details_arg     = join($rule_details, ' ')
+  $netsh_create_cmd     = "${netsh_bin} advfirewall firewall add rule name=\"${display_name}\" ${rule_details_arg}"
 
-    # Use unless for exec if we want the rule to exist, include a description
-    if $ensure == 'present' {
-        $fw_action = 'add'
-        $unless = $check_rule_existance
-        $onlyif = undef
-        $fw_description = "description=\"${description}\""
-    } else {
-    # Or onlyif if we expect it to be absent; no description argument
-        $fw_action = 'delete'
-        $onlyif = $check_rule_existance
-        $unless = undef
-        $fw_description = ''
-    }
+  # Define command in case of rule with the defined display name already exists
+  if $update {
+    $netsh_update_cmd = "${netsh_bin} advfirewall firewall set rule name=\"${display_name}\" new ${rule_details_arg}"
+    $update_title = "Update rule ${display_name}"
+  } else {
+    $netsh_update_cmd = $netsh_create_cmd
+    $update_title = "Create new rule ${display_name}"
+  }
 
-    $netsh_command = "C:\\Windows\\System32\\netsh.exe advfirewall firewall ${fw_action} rule name=\"${display_name}\" ${fw_description} dir=${direction} action=${action} enable=${enabled} edge=${allow_edge_traversal} ${allow_context} remoteip=\"${remote_ip}\""
-
-    exec { "set rule ${display_name}":
-      command  => $netsh_command,
+  if $ensure == 'present' {
+    # Create a new one if there is no rule found with the defined display name
+    exec { "Create rule ${display_name}":
+      command  => $netsh_create_cmd,
       provider => windows,
-      onlyif   => $onlyif,
-      unless   => $unless,
+      unless   => $check_rule_existance,
+      } ~>
+    # If rule with $display_name already exists use the update_cmd
+    exec { $update_title:
+      command  => $netsh_update_cmd,
+      provider => windows,
+      unless   => $detailed_search_cmd,
+      }
+  } else {
+    exec { "Remove rule ${display_name}":
+      command  => $netsh_delete_cmd,
+      provider => windows,
+      unless   => $check_rule_existance,
     }
+  }
 }
