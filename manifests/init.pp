@@ -29,18 +29,12 @@ class windows_firewall (
 ) {
 
     validate_re($ensure,['^(running|stopped)$'])
-
     $firewall_name = 'MpsSvc'
+    $firewall_profiles = ['DomainProfile', 'PublicProfile', 'StandardProfile']
 
     case $ensure {
-        'running': {
-            $enabled = true
-            $enabled_data = '1'
-        }
-        default: {
-            $enabled = false
-            $enabled_data = '0'
-        }
+        'running': { $enabled = true }
+        default  : { $enabled = false }
     }
 
     service { 'windows_firewall':
@@ -49,10 +43,7 @@ class windows_firewall (
       enable => $enabled,
     }
 
-    registry_value { 'EnableFirewall':
-      ensure => 'present',
-      path   => '32:HKLM\SYSTEM\ControlSet001\services\SharedAccess\Parameters\FirewallPolicy\DomainProfile\EnableFirewall',
-      type   => 'dword',
-      data   => $enabled_data
+    windows_firewall::config::firewall_service { $firewall_profiles:
+        enabled => $enabled
     }
 }
