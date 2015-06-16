@@ -78,18 +78,18 @@
 #   }
 #
 define windows_firewall::exception(
-  $ensure = 'present',
-  $direction = '',
-  $action = '',
-  $enabled = 'yes',
-  $protocol = '',
-  $local_port = '',
-  $remote_ip = '',
-  $program = undef,
-  $display_name = '',
-  $description = '',
+  $ensure               = 'present',
+  $direction            = '',
+  $action               = '',
+  $enabled              = 'yes',
+  $protocol             = '',
+  $local_port           = '',
+  $remote_ip            = '',
+  $program              = undef,
+  $display_name         = '',
+  $description          = '',
   $allow_edge_traversal = 'no',
-  $update = true
+  $update               = true
 
 ) {
 
@@ -105,7 +105,7 @@ define windows_firewall::exception(
       validate_re($local_port,['^(any|([0-9]{1,5})|([0-9]{1,5})[-]([0-9]{1,5}))$'])
     }
   } else {
-    $fw_command = 'allowedprogram'
+    $fw_command    = 'allowedprogram'
     $allow_context = "program=\"${program}\""
     validate_absolute_path($program)
   }
@@ -184,10 +184,10 @@ define windows_firewall::exception(
   # Define command in case of rule with the defined display name already exists
   if $update {
     $netsh_update_cmd = "${netsh_bin} advfirewall firewall set rule name=\"${display_name}\" new ${rule_details_arg}"
-    $update_title = "Update rule ${display_name}"
+    $update_title     = "Update rule ${display_name}"
   } else {
     $netsh_update_cmd = $netsh_create_cmd
-    $update_title = "Create new rule ${display_name}"
+    $update_title     = "Create new rule ${display_name}"
   }
 
   if $ensure == 'present' {
