@@ -104,7 +104,7 @@ define windows_firewall::exception(
         $allow_context = "protocol=${protocol}"
       } else {
         $allow_context = "protocol=${protocol} ${port_param}=${local_port}"
-        validate_re($local_port,['any|[0-9]{1,5}'])
+        validate_re($local_port,['^(any|([0-9]{1,5})|([0-9]{1,5})[-]([0-9]{1,5}))$'])
       }
     } else {
       $fw_command = 'allowedprogram'
